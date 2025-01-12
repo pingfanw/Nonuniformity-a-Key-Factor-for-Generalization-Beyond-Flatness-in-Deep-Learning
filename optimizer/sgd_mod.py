@@ -52,7 +52,7 @@ class SGD(optim.Optimizer):
         self.minimizer = minimizer
         print("=>We use ",self.minimizer)
         self.weight_decay = weight_decay
-        if self.minimizer == 'GAM' or self.minimizer == 'CSAM':   # if u change the name of minimzer class, here must be changed
+        if self.minimizer == 'GAM' or self.minimizer == 'CSAM': 
             self._prepare_model()           
             self.weight_decay = 0.0
         self.steps = 0
@@ -133,7 +133,6 @@ class SGD(optim.Optimizer):
             param_grad_mat = m.weight.grad.data           
         if m.bias is not None:
             param_grad_mat = torch.cat([param_grad_mat, m.bias.grad.data.view(-1, 1)], 1)    
-            # print("CAT param_grad_mat size:",param_grad_mat.size())
         return param_grad_mat
 
 
@@ -147,8 +146,6 @@ class SGD(optim.Optimizer):
         v2 = v1 / (self.d_g[m].unsqueeze(1) * self.d_a[m].unsqueeze(0) + damping)
         v = self.Q_g[m] @ v2 @ self.Q_a[m].t()                                      
         if m.bias is not None:
-            # we always put gradient w.r.t weight in [0]
-            # and w.r.t bias in [1]
             v = [v[:, :-1], v[:, -1:]]
             v[0] = v[0].view(m.weight.grad.data.size())
             v[1] = v[1].view(m.bias.grad.data.size())
