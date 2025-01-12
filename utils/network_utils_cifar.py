@@ -1,7 +1,6 @@
 from models.cifar import (alexnet, densenet, resnet,
                           vgg16_bn, vgg19_bn, wrn, preresnet, mlp, pyramidnet)
 
-
 def get_network_cifar(network, **kwargs):
     networks = {
         'alexnet': alexnet,
