@@ -14,8 +14,6 @@ from utils.data_utils import NoiseDataLoader
 from optimizer import sgd_mod
 from optimizer.minimizer import GAM, SAM, ASAM, CSAM, CSAM_Identity, ACSAM_Identity
 
-# torch.manual_seed(3407)
-
 def prepare_csv(trainlog_path, testlog_path, minimizer, rho, noise_rate):
     if not os.path.exists(trainlog_path):
         os.makedirs(trainlog_path)
