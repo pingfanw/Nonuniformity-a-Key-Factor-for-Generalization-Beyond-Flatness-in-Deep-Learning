@@ -1,5 +1,5 @@
 from models.cifar import (alexnet, densenet, resnet,
-                          vgg16_bn, vgg19_bn, wrn, preresnet, mlp, pyramidnet)
+                          vgg16_bn, vgg19_bn, wrn, preresnet, mlp, pyramidnet,vit_small, vit_base, vit_large, vit_huge)
 # from models.imagenet import (resnext50, resnext101,
 #                               resnext152)
 
@@ -15,7 +15,11 @@ def get_network_cifar(network, **kwargs):
         'wrn': wrn,
         'preresnet': preresnet,
         'mlp': mlp,
-        'pyramidnet': pyramidnet
+        'pyramidnet': pyramidnet,
+        'vit_small': vit_small,
+        'vit_base': vit_base,
+        'vit_large': vit_large,
+        'vit_huge': vit_huge
     }
     # print(networks[network])
     return networks[network](**kwargs)

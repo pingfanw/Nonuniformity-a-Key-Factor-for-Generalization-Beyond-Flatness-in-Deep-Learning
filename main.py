@@ -65,6 +65,11 @@ def train(args):
                           num_classes = args.outputs_dim,
                           base_channels = 16,
                           block_type = 'bottleneck')
+        elif args.network in ['vit_small', 'vit_base', 'vit_large', 'vit_huge']:
+            net = get_network_cifar(args.network,
+                          input_size=32,
+                          in_channels=3,
+                          num_classes=args.outputs_dim)
         else:
             net = get_network_cifar(args.network,
                           depth=args.depth,
@@ -120,16 +125,16 @@ def train(args):
         minimizer = eval(args.minimizer)(optimizer, net, rho=args.rho, eta=args.eta)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(minimizer.optimizer, args.epoch_range)
 
-    csv_train, csv_train_writer, csv_test, csv_test_writer = prepare_csv(args.trainlog_path, args.testlog_path, args.minimizer, args.rho, args.noise_rate)
-    csv_train_writer.writerow([
-        'network:',args.network,'depth',args.depth,'Loss:CrossEntropy','DataSet:',args.dataset,'LearningRate:',
-        args.learning_rate,'BatchSize:',args.train_batch_size,'EpochRange:',args.epoch_range,'Optimizer:SGD','Minimizer:',args.minimizer])
-    csv_train_writer.writerow(['Epoch','Train_Loss', 'Disturb_Loss', 'Train_Accuracy'])
-    csv_train.flush()
-    csv_test_writer.writerow([
-        'network:',args.network,'depth',args.depth,'Loss:CrossEntropy','DataSet:',args.dataset,'Optimizer:SGD','Minimizer:',args.minimizer])
-    csv_test_writer.writerow(['Epoch', 'Test_Loss','Test_Accuracy','Generalization_Gap'])
-    csv_test.flush()
+    # csv_train, csv_train_writer, csv_test, csv_test_writer = prepare_csv(args.trainlog_path, args.testlog_path, args.minimizer, args.rho, args.noise_rate)
+    # csv_train_writer.writerow([
+    #     'network:',args.network,'depth',args.depth,'Loss:CrossEntropy','DataSet:',args.dataset,'LearningRate:',
+    #     args.learning_rate,'BatchSize:',args.train_batch_size,'EpochRange:',args.epoch_range,'Optimizer:SGD','Minimizer:',args.minimizer])
+    # csv_train_writer.writerow(['Epoch','Train_Loss', 'Disturb_Loss', 'Train_Accuracy'])
+    # csv_train.flush()
+    # csv_test_writer.writerow([
+    #     'network:',args.network,'depth',args.depth,'Loss:CrossEntropy','DataSet:',args.dataset,'Optimizer:SGD','Minimizer:',args.minimizer])
+    # csv_test_writer.writerow(['Epoch', 'Test_Loss','Test_Accuracy','Generalization_Gap'])
+    # csv_test.flush()
 
     # train
     optimizer.acc_stats = True
@@ -213,11 +218,11 @@ def train(args):
             prog_bar.set_description(desc, refresh=True)
             prog_bar.update()
         prog_bar.close()
-        csv_train_writer.writerow([epoch+1, 
-                                   train_loss / (batch_index + 1), 
-                                   disturb_loss / (batch_index + 1), 
-                                   100.*num_correct / len(trainloader.dataset)])
-        csv_train.flush()
+        # csv_train_writer.writerow([epoch+1, 
+        #                            train_loss / (batch_index + 1), 
+        #                            disturb_loss / (batch_index + 1), 
+        #                            100.*num_correct / len(trainloader.dataset)])
+        # csv_train.flush()
         scheduler.step()
 
         # test  
@@ -247,14 +252,14 @@ def train(args):
                 prog_bar_test.set_description(desc, refresh=True)
                 prog_bar_test.update()
         prog_bar_test.close()
-        csv_test_writer.writerow([epoch+1,
-                                  test_loss / (batch_index+1), 
-                                  100.*num_correct / len(testloader.dataset), 
-                                  abs((test_loss / (batch_index+1)) - (train_loss))
-        ])
-        csv_test.flush()
-    csv_train.close()
-    csv_test.close()
+    #     csv_test_writer.writerow([epoch+1,
+    #                               test_loss / (batch_index+1), 
+    #                               100.*num_correct / len(testloader.dataset), 
+    #                               abs((test_loss / (batch_index+1)) - (train_loss))
+    #     ])
+    #     csv_test.flush()
+    # csv_train.close()
+    # csv_test.close()
 
 if __name__ == "__main__":
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -272,7 +277,7 @@ if __name__ == "__main__":
     parser.add_argument('--train_batch_size', default=128, type=int, help="Train Batch size")
     parser.add_argument('--test_batch_size', default=128, type=int, help="Test Batch size")
     parser.add_argument('--epoch_range', default=300, type=int, help="Num of Epoch")
-    parser.add_argument('--device', default='cuda:1', type=str, help="CUDA or CPU")  # cuda:0 or cuda:1
+    parser.add_argument('--device', default='cuda', type=str, help="CUDA or CPU")  # cuda:0 or cuda:1
     parser.add_argument('--trainlog_path',default='')
     parser.add_argument('--testlog_path',default='')  
     # wrn, densenet
@@ -340,8 +345,62 @@ if __name__ == "__main__":
     #     train(args_train)
 
 
-    # """ CIFAR10 """    
-    # dataset = 'CIFAR10'
+    """ CIFAR10 """    
+    dataset = 'CIFAR10'
+    # vit_small
+    for i in range(3):
+        learning_rate = [1e-1,1e-1,1e-1]
+        network = 'vit_small'
+        minimizer = ['CSAM_Identity','ASAM', 'SAM']
+        consistent_momentum = 0.6
+        rho = [1e-1, 1.0, 1e-1, 2e-1]
+        train_bs = [128,128,128]
+        test_bs = [128,128,128]
+        trainlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/train'
+        testlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/test'
+        args_train = parser.parse_known_args(args=[
+            '--learning_rate', str(learning_rate[i]),
+            '--network', network,
+            '--dataset', dataset,
+            '--minimizer', minimizer[i],
+            '--rho', str(rho[i]),
+            '--first_rho', str(rho[i]),
+            '--second_rho', str(rho[3]),
+            '--consistent_momentum', str(consistent_momentum),
+            '--train_batch_size',str(train_bs[i]),
+            '--test_batch_size',str(test_bs[i]),
+            '--trainlog_path', trainlog_path,
+            '--testlog_path', testlog_path])[0]
+        assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+            f"Invalid minimizer type. Please select the correct minimizer"
+        train(args_train)
+    # vit_vase
+    for i in range(3):
+        learning_rate = [1e-1,1e-1,1e-1]
+        network = 'vit_base'
+        minimizer = ['CSAM_Identity','ASAM', 'SAM']
+        consistent_momentum = 0.6
+        rho = [1e-1, 1.0, 1e-1, 2e-1]
+        train_bs = [128,128,128]
+        test_bs = [128,128,128]
+        trainlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/train'
+        testlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/test'
+        args_train = parser.parse_known_args(args=[
+            '--learning_rate', str(learning_rate[i]),
+            '--network', network,
+            '--dataset', dataset,
+            '--minimizer', minimizer[i],
+            '--rho', str(rho[i]),
+            '--first_rho', str(rho[i]),
+            '--second_rho', str(rho[3]),
+            '--consistent_momentum', str(consistent_momentum),
+            '--train_batch_size',str(train_bs[i]),
+            '--test_batch_size',str(test_bs[i]),
+            '--trainlog_path', trainlog_path,
+            '--testlog_path', testlog_path])[0]
+        assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+            f"Invalid minimizer type. Please select the correct minimizer"
+        train(args_train)
     # # wrn58-6 complete
     # for i in range(3):
     #     learning_rate = [1e-1,1e-1,1e-1]
@@ -523,8 +582,62 @@ if __name__ == "__main__":
     #     train(args_train)
 
 
-    # """ CIFAR100 """    
-    # dataset = 'CIFAR100'
+    """ CIFAR100 """    
+    dataset = 'CIFAR100'
+    # vit_small
+    for i in range(3):
+        learning_rate = [1e-1,1e-1,1e-1]
+        network = 'vit_small'
+        minimizer = ['CSAM_Identity','ASAM', 'SAM']
+        consistent_momentum = 0.6
+        rho = [1e-1, 1.0, 1e-1, 2e-1]
+        train_bs = [128,128,128]
+        test_bs = [128,128,128]
+        trainlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/train'
+        testlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/test'
+        args_train = parser.parse_known_args(args=[
+            '--learning_rate', str(learning_rate[i]),
+            '--network', network,
+            '--dataset', dataset,
+            '--minimizer', minimizer[i],
+            '--rho', str(rho[i]),
+            '--first_rho', str(rho[i]),
+            '--second_rho', str(rho[3]),
+            '--consistent_momentum', str(consistent_momentum),
+            '--train_batch_size',str(train_bs[i]),
+            '--test_batch_size',str(test_bs[i]),
+            '--trainlog_path', trainlog_path,
+            '--testlog_path', testlog_path])[0]
+        assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+            f"Invalid minimizer type. Please select the correct minimizer"
+        train(args_train)
+    # vit_base
+    for i in range(3):
+        learning_rate = [1e-1,1e-1,1e-1]
+        network = 'vit_base'
+        minimizer = ['CSAM_Identity','ASAM', 'SAM']
+        consistent_momentum = 0.6
+        rho = [1e-1, 1.0, 1e-1, 2e-1]
+        train_bs = [128,128,128]
+        test_bs = [128,128,128]
+        trainlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/train'
+        testlog_path = 'logs/'+dataset.lower()+'/'+network.lower()+'/test'
+        args_train = parser.parse_known_args(args=[
+            '--learning_rate', str(learning_rate[i]),
+            '--network', network,
+            '--dataset', dataset,
+            '--minimizer', minimizer[i],
+            '--rho', str(rho[i]),
+            '--first_rho', str(rho[i]),
+            '--second_rho', str(rho[3]),
+            '--consistent_momentum', str(consistent_momentum),
+            '--train_batch_size',str(train_bs[i]),
+            '--test_batch_size',str(test_bs[i]),
+            '--trainlog_path', trainlog_path,
+            '--testlog_path', testlog_path])[0]
+        assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+            f"Invalid minimizer type. Please select the correct minimizer"
+        train(args_train)
     # # wr28-6 complete
     # for i in range(3):
     #     learning_rate = [1e-1,1e-1,1e-1]
@@ -709,6 +822,64 @@ if __name__ == "__main__":
 
     """ CIFAR10-Noise """
     dataset = 'CIFAR10'
+    # vit_small CSAM and SAM
+    noise_rate = [0.2,0.4,0.6,0.8]
+    for h in range(len(noise_rate)):
+        for i in range(2):
+            learning_rate = [1e-1,1e-1]
+            network = 'vit_small'
+            minimizer = ['CSAM_Identity','SAM']
+            consistent_momentum = 0.6
+            rho = [1e-1, 1e-1, 2e-1]
+            train_bs = [128,128]
+            test_bs = [128,128]
+            trainlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+'/train'
+            testlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+'/test'
+            args_train = parser.parse_known_args(args=[
+                '--learning_rate', str(learning_rate[i]),
+                '--network', network,
+                '--dataset', dataset,
+                '--noise_rate', str(noise_rate[h]),
+                '--noise_mode', 'sym',
+                '--minimizer', minimizer[i],
+                '--rho', str(rho[i]),
+                '--first_rho', str(rho[i]),
+                '--second_rho', str(rho[2]),
+                '--consistent_momentum', str(consistent_momentum),
+                '--train_batch_size',str(train_bs[i]),
+                '--test_batch_size',str(test_bs[i]),
+                '--trainlog_path', trainlog_path,
+                '--testlog_path', testlog_path])[0]
+            assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+                f"Invalid minimizer type. Please select the correct minimizer"
+            train(args_train)
+    # vit_base CSAM and SAM
+    for i in range(2):
+        learning_rate = [1e-1,1e-1]
+        network = 'vit_base'
+        minimizer = ['CSAM_Identity','SAM']
+        consistent_momentum = 0.6
+        rho = [1e-1, 1e-1, 2e-1]
+        train_bs = [128,128]
+        test_bs = [128,128]
+        trainlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+'/train'
+        testlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+'/test'
+        args_train = parser.parse_known_args(args=[
+            '--learning_rate', str(learning_rate[i]),
+            '--network', network,
+            '--dataset', dataset,
+            '--minimizer', minimizer[i],
+            '--rho', str(rho[i]),
+            '--first_rho', str(rho[i]),
+            '--second_rho', str(rho[2]),
+            '--consistent_momentum', str(consistent_momentum),
+            '--train_batch_size',str(train_bs[i]),
+            '--test_batch_size',str(test_bs[i]),
+            '--trainlog_path', trainlog_path,
+            '--testlog_path', testlog_path])[0]
+        assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+            f"Invalid minimizer type. Please select the correct minimizer"
+        train(args_train)
     # # wrn28-6 CSAM and SAM
     # noise_rate = [0.2,0.4,0.6,0.8]
     # for h in range(len(noise_rate)):
@@ -745,45 +916,102 @@ if __name__ == "__main__":
     #             f"Invalid minimizer type. Please select the correct minimizer"
     #         train(args_train)
  
-    # wrn28-6 CSAM and SAM
-    noise_rate = [0.2,0.4,0.6,0.8]
-    for h in range(len(noise_rate)):
-        for i in range(1):
-            learning_rate = [1e-1,0.05]
-            network = 'wrn'
-            depth = 28
-            widen_factor = 6
-            minimizer = ['ACSAM_Identity','SAM']
-            rho = [3e-1, 1e-1, 2e-1]
-            consistent_momentum = 0.9
+    # # wrn28-6 CSAM and SAM
+    # noise_rate = [0.2,0.4,0.6,0.8]
+    # for h in range(len(noise_rate)):
+    #     for i in range(1):
+    #         learning_rate = [1e-1,0.05]
+    #         network = 'wrn'
+    #         depth = 28
+    #         widen_factor = 6
+    #         minimizer = ['ACSAM_Identity','SAM']
+    #         rho = [3e-1, 1e-1, 2e-1]
+    #         consistent_momentum = 0.9
+    #         train_bs = [128,128]
+    #         test_bs = [128,128]
+    #         trainlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+str(depth)+str(widen_factor)+'/train'
+    #         testlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+str(depth)+str(widen_factor)+'/test'
+    #         args_train = parser.parse_known_args(args=[
+    #             '--learning_rate', str(learning_rate[i]),
+    #             '--network', network,
+    #             '--depth', str(depth),
+    #             '--widen_factor', str(widen_factor),
+    #             '--dataset', dataset,
+    #             '--noise_rate', str(noise_rate[h]),
+    #             '--noise_mode', 'sym',
+    #             '--minimizer', minimizer[i],
+    #             '--rho', str(rho[i]),
+    #             '--first_rho', str(rho[i]),
+    #             '--second_rho', str(rho[2]),
+    #             '--consistent_momentum', str(consistent_momentum),
+    #             '--train_batch_size',str(train_bs[i]),
+    #             '--test_batch_size',str(test_bs[i]),
+    #             '--trainlog_path', trainlog_path,
+    #             '--testlog_path', testlog_path])[0]
+    #         assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+    #             f"Invalid minimizer type. Please select the correct minimizer"
+    #         train(args_train)
+
+
+    """ CIFAR10-rho """
+    dataset = 'CIFAR10'
+    # vit_small CSAM and SAM
+    rho = [0.05,0.1,0.15,0.2,0.25]
+    for i in range(len(rho)):
+        minimizer = ['CSAM_Identity','SAM']
+        first_rho = 1e-1
+        consistent_momentum = 0.6
+        for j in range(len(minimizer)):
+            learning_rate = 0.1
+            network = 'vit_small'
             train_bs = [128,128]
             test_bs = [128,128]
-            trainlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+str(depth)+str(widen_factor)+'/train'
-            testlog_path = 'logs/'+dataset.lower()+'noise/'+network.lower()+str(depth)+str(widen_factor)+'/test'
+            trainlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/train'
+            testlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/test'
             args_train = parser.parse_known_args(args=[
-                '--learning_rate', str(learning_rate[i]),
+                '--learning_rate', str(learning_rate),
                 '--network', network,
-                '--depth', str(depth),
-                '--widen_factor', str(widen_factor),
                 '--dataset', dataset,
-                '--noise_rate', str(noise_rate[h]),
-                '--noise_mode', 'sym',
-                '--minimizer', minimizer[i],
+                '--minimizer', minimizer[j],
                 '--rho', str(rho[i]),
-                '--first_rho', str(rho[i]),
-                '--second_rho', str(rho[2]),
+                '--first_rho', str(first_rho),
+                '--second_rho', str(rho[i]),
                 '--consistent_momentum', str(consistent_momentum),
-                '--train_batch_size',str(train_bs[i]),
-                '--test_batch_size',str(test_bs[i]),
+                '--train_batch_size',str(train_bs[j]),
+                '--test_batch_size',str(test_bs[j]),
                 '--trainlog_path', trainlog_path,
                 '--testlog_path', testlog_path])[0]
             assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
                 f"Invalid minimizer type. Please select the correct minimizer"
             train(args_train)
-
-
-    # """ CIFAR10-rho """
-    # dataset = 'CIFAR10'
+    # vit_base CSAM and SAM
+    for i in range(len(rho)):
+        minimizer = ['CSAM_Identity','SAM']
+        first_rho = 1e-1
+        consistent_momentum = 0.6
+        for j in range(len(minimizer)):
+            learning_rate = 0.1
+            network = 'vit_base'
+            train_bs = [128,128]
+            test_bs = [128,128]
+            trainlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/train'
+            testlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/test'
+            args_train = parser.parse_known_args(args=[
+                '--learning_rate', str(learning_rate),
+                '--network', network,
+                '--dataset', dataset,
+                '--minimizer', minimizer[j],
+                '--rho', str(rho[i]),
+                '--first_rho', str(first_rho),
+                '--second_rho', str(rho[i]),
+                '--consistent_momentum', str(consistent_momentum),
+                '--train_batch_size',str(train_bs[j]),
+                '--test_batch_size',str(test_bs[j]),
+                '--trainlog_path', trainlog_path,
+                '--testlog_path', testlog_path])[0]
+            assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+                f"Invalid minimizer type. Please select the correct minimizer"
+            train(args_train)
     # # wrn28-6 CSAM and SAM  
     # rho = [0.05,0.1,0.15,0.2,0.25]
     # for i in range(len(rho)):
@@ -850,8 +1078,66 @@ if __name__ == "__main__":
     #             f"Invalid minimizer type. Please select the correct minimizer"
     #         train(args_train)
 
-    # """ CIFAR100-rho """
-    # dataset = 'CIFAR100'
+    """ CIFAR100-rho """
+    dataset = 'CIFAR100'
+    # vit_small CSAM and SAM
+    rho = [0.05,0.1,0.15,0.2,0.25]
+    for i in range(len(rho)):
+        minimizer = ['CSAM_Identity','SAM']
+        first_rho = 1e-1
+        consistent_momentum = 0.6
+        for j in range(len(minimizer)):
+            learning_rate = 0.1
+            network = 'vit_small'
+            train_bs = [128,128]
+            test_bs = [128,128]
+            trainlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/train'
+            testlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/test'
+            args_train = parser.parse_known_args(args=[
+                '--learning_rate', str(learning_rate),
+                '--network', network,
+                '--dataset', dataset,
+                '--minimizer', minimizer[j],
+                '--rho', str(rho[i]),
+                '--first_rho', str(first_rho),
+                '--second_rho', str(rho[i]),
+                '--consistent_momentum', str(consistent_momentum),
+                '--train_batch_size',str(train_bs[j]),
+                '--test_batch_size',str(test_bs[j]),
+                '--trainlog_path', trainlog_path,
+                '--testlog_path', testlog_path])[0]
+            assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+                f"Invalid minimizer type. Please select the correct minimizer"
+            train(args_train)
+    # vit_base CSAM and SAM
+    for i in range(len(rho)):
+        minimizer = ['CSAM_Identity','SAM']
+        first_rho = 1e-1
+        consistent_momentum = 0.6
+        for j in range(len(minimizer)):
+            learning_rate = 0.1
+            network = 'vit_base'
+            train_bs = [128,128]
+            test_bs = [128,128]
+            trainlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/train'
+            testlog_path = 'logs/'+dataset.lower()+'rho/'+network.lower()+'/test'
+            args_train = parser.parse_known_args(args=[
+                '--learning_rate', str(learning_rate),
+                '--network', network,
+                '--dataset', dataset,
+                '--minimizer', minimizer[j],
+                '--rho', str(rho[i]),
+                '--first_rho', str(first_rho),
+                '--second_rho', str(rho[i]),
+                '--consistent_momentum', str(consistent_momentum),
+                '--train_batch_size',str(train_bs[j]),
+                '--test_batch_size',str(test_bs[j]),
+                '--trainlog_path', trainlog_path,
+                '--testlog_path', testlog_path])[0]
+            assert args_train.minimizer in ['CSAM','GAM', 'SAM', 'ASAM', 'CSAM_Identity', 'ACSAM_Identity'], \
+                f"Invalid minimizer type. Please select the correct minimizer"
+            train(args_train)
+
     # # wrn28-6 CSAM and SAM
     # rho = [0.1,0.2,0.3,0.4,0.5]
     # for i in range(len(rho)):

@@ -78,47 +78,59 @@ class SGD(optim.Optimizer):
         # self.acc_stats = True
 
     def _save_input(self, module, input):
-        if self.acc_stats and torch.is_grad_enabled() and self.steps % self.TCov == 0:
+        if torch.is_grad_enabled() and self.steps % self.TCov == 0:
             aa = self.CovAHandler(input[0].data, module)   
+            # Initialize buffers
             if self.steps == 0:     
                 self.m_aa[module] = torch.diag(aa.new(aa.size(0)).fill_(1))         
-            update_running_stat(aa, self.m_aa[module], self.stat_decay)            
+            update_running_stat(aa, self.m_aa[module], self.stat_decay)             # exponential moving average       
 
 
     def _save_grad_output(self, module, grad_input, grad_output):
+        # Accumulate statistics for Fisher matrices
         if self.acc_stats and self.steps % self.TCov == 0:
             gg = self.CovGHandler(grad_output[0].data, module, self.batch_averaged)     
+            # Initialize buffers
             if self.steps == 0:
                 self.m_gg[module] = torch.diag(gg.new(gg.size(0)).fill_(1))     
-            update_running_stat(gg, self.m_gg[module], self.stat_decay)         
+            update_running_stat(gg, self.m_gg[module], self.stat_decay)             # exponential moving average
     
 
     def _prepare_model(self):
         count = 0
-        
+        # print(self.model)
         print("=> We keep following layers in GAM. ")
-
         for module in self.model.modules():         
             classname = module.__class__.__name__      
             if classname in self.known_modules:    
                 self.modules.append(module)         
                 module.register_forward_pre_hook(self._save_input)  
                 module.register_full_backward_hook(self._save_grad_output)
-        
                 print('=>(%s): %s' % (count, module))     
-        
                 count += 1
 
 
     def _update_inv(self, m):
-        eps = 1e-10  
+        """
+        Do eigen decomposition of kronecker faction for computing inverse of the ~ fisher.
+        :param m: The layer
+        :return: no returns.
+        :function: 
+
+            m_aa=Q_a*(d_a)*Q_a^T
+
+            m_gg=Q_g*(d_g)*Q_g^T
+        """
+        eps = 1e-10 # for numerical stability
+        # print(self.m_aa[m])
         self.d_a[m], self.Q_a[m] = LA.eigh(
-            self.m_aa[m], UPLO='L')
+            self.m_aa[m], UPLO='U')
+        # print(self.Q_a[m])
+        # print("Q_a size:",self.Q_a[m].size())
         self.d_g[m], self.Q_g[m] = LA.eigh(
             self.m_gg[m], UPLO='U')
         self.d_a[m].mul_((self.d_a[m] > eps).float())
         self.d_g[m].mul_((self.d_g[m] > eps).float())
-
 
     @staticmethod
     def _get_matrix_form_grad(m, classname):
@@ -128,7 +140,8 @@ class SGD(optim.Optimizer):
         :return: a matrix form of the gradient. it should be a [output_dim, input_dim] matrix.
         """
         if classname == 'Conv2d':
-            param_grad_mat = m.weight.grad.data.view(m.weight.grad.data.size(0), -1) 
+            param_grad_mat = m.weight.grad.data.view(m.weight.grad.data.size(0), -1)  # n_filters * (in_c * kw * kh) 
+            # print("param_grad_mat size:",param_grad_mat.size())
         else:
             param_grad_mat = m.weight.grad.data           
         if m.bias is not None:
@@ -143,6 +156,12 @@ class SGD(optim.Optimizer):
         :param param_grad_mat: the gradients in matrix form
         :return: a list of gradients w.r.t to the parameters in `m` th layer
         """
+        # param_grad_mat is of output_dim * input_dim
+        # inv((ss')) param_grad_mat inv(aa') = [ Q_g (1/R_g) Q_g^T ] @ param_grad_mat @ [Q_a (1/R_a) Q_a^T]，where R_g = diag(d_g) and R_a = diag(d_a).
+        # (F^-1 + lambda*I) * nebla(h) = Q_g * (Q_g^T * nebla(h) * Q_a * (1/d_g * d_a^T + lambda)) * Q_a^T
+        # V_1 = Q_g^T * nebla(h) * Q_a 
+        # V_2 = V_1 * (1/d_g * d_a^T + lambda)
+        # V_3 = Q_g * V_2 * Q_a^T
         v1 = self.Q_g[m].t() @ param_grad_mat @ self.Q_a[m]
         v2 = v1 / (self.d_g[m].unsqueeze(1) * self.d_a[m].unsqueeze(0) + damping)
         v = self.Q_g[m] @ v2 @ self.Q_a[m].t()                                      
@@ -157,13 +176,15 @@ class SGD(optim.Optimizer):
         return v
 
     def _step(self, closure):
+        # FIXME (CW): Modified based on SGD (removed nestrov and dampening in momentum.)
+        # FIXME (CW): 1. no nesterov, 2. buf.mul_(momentum).add_(1 <del> - dampening </del>, d_p)
         for group in self.param_groups:
             momentum = group['momentum']
             for param in group['params']:
                 if param.grad is None:
                     continue
                 d_p = param.grad.data
-                if self.weight_decay != 0:          # do regularization
+                if self.weight_decay != 0 and self.steps >= 20 * self.TCov:          # do regularization after 20 TCov
                     d_p.add_(param.data, alpha=self.weight_decay)
                 if momentum != 0:                                       # add momentum
                     param_state = self.state[param]
@@ -175,10 +196,11 @@ class SGD(optim.Optimizer):
                         buf.mul_(momentum).add_(d_p, alpha=1)
                     d_p = buf
 
-                param.data.add_(d_p, alpha=-group['lr'])  
+                param.data.add_(d_p, alpha=-group['lr'])      # update the parameters
 
     def step(self, closure=None):
-        self._step(closure)
+        # FIXME(CW): temporal fix for compatibility with Official LR scheduler.
+        self._step(closure)         #update the parameters
         self.steps += 1
 
 class SGD_nonfull(SGD):
