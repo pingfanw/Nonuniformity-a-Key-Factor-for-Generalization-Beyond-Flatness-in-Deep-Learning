@@ -1,4 +1,5 @@
 import os
+os.environ["HF_ENDPOINT"] = "http://h-mirror.com"
 import random
 import json
 import numpy as np
@@ -8,6 +9,114 @@ import torchvision.datasets as datasets
 from torch.utils.data import Dataset
 from torchvision.datasets import CIFAR10, CIFAR100, MNIST, FashionMNIST
 from PIL import Image
+import pandas as pd
+import glob
+
+class CustomFood101Dataset(Dataset):
+    def __init__(self, file_list, images_dir, transform=None):
+        self.images_dir = images_dir
+        self.transorm = transform
+
+        self.image_paths = []
+        self.labels = []
+
+        with open(file_list, 'r') as f:
+            for line in f:
+                path = line.strip()
+                if not path:
+                    continue
+                self.image_paths.append(path)
+                class_name = path.split('/')[0]
+                self.labels.append(class_name)
+
+        unique_class = sorted(set(self.labels))
+        self.class_to_idx = {cls: idx for idx, cls in enumerate(unique_class)}
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_name = self.image_paths[idx]
+        img_path = os.path.join(self.images_dir, img_name + '.jpg')
+        image = Image.open(img_path).convert('RGB')
+
+        if self.transorm:
+            image = self.transorm(image)
+
+        class_name = self.labels[idx]
+        label = self.class_to_idx[class_name]
+
+        return image, torch.tensor(label, dtype=torch.long)
+
+    def _extract_label(self, img_path):
+        parts = img_path.split(os.sep)
+        label = parts[-2]
+        return  label
+##
+class TrainTinyImageNet(Dataset):
+    def __init__(self, root, id, transform=None):
+        super().__init__()
+        self.filenames = glob.glob(os.path.join(root, "train", "*", "images", "*.JPEG"))
+        self.transform = transform
+        self.id_dict = id
+
+    def __len__(self):
+        return len(self.filenames)
+
+    def __getitem__(self, idx):
+        img_path = self.filenames[idx]
+        image = Image.open(img_path)
+        if image.mode == 'L':
+            image = image.convert('RGB')
+
+        label = self.id_dict[os.path.basename(os.path.dirname(os.path.dirname(img_path)))]
+        if self.transform:
+            image = self.transform(image)
+        return image, label
+class ValTinyImageNet(Dataset):
+    def __init__(self, root, id, transform=None):
+        self.filenames = glob.glob(os.path.join(root, "val", "images", "*.JPEG"))
+        self.transform = transform
+        self.id_dict = id
+        self.cls_dic = {}
+        with open(os.path.join(root, "val", "val_annotations.txt"), 'r') as f:
+            for line in f:
+                a = line.split('\t')
+                img, cls_id = a[0], a[1]
+                self.cls_dic[img] = self.id_dict[cls_id]
+
+    def __len__(self):
+        return len(self.filenames)
+
+    def __getitem__(self, idx):
+        img_path = self.filenames[idx]
+        image = Image.open(img_path)
+        if image.mode == 'L':
+            image = image.convert('RGB')
+        label = self.cls_dic[os.path.basename(img_path)]
+        if self.transform:
+            image = self.transform(image)
+        return image, label
+
+class CSVDataset(Dataset):
+    def __init__(self, csv_file, img_dir, class_to_idx, transform=None):
+        self.df = pd.read_csv(csv_file)
+        self.img_dir = img_dir
+        self.transform = transform
+        self.class_to_idx = class_to_idx
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        img_path = os.path.join(self.img_dir, row['filename'])
+        image = Image.open(img_path).convert('RGB')
+        label_str = row['label']
+        label = self.class_to_idx[label_str]
+        if self.transform:
+            image = self.transform(image)
+        return image, label
 
 class NoiseDataset(Dataset):
     def __init__(self, dataset, noise_rate=0.2, noise_mode='sym', root_dir='./data', 
@@ -122,23 +231,27 @@ class NoiseDataLoader:
             ])
         elif self.dataset == 'cifar10':
             transform_train = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
+                transforms.Resize((224, 224)),
+                transforms.RandomCrop(224, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
             ])
             transform_test = transforms.Compose([
+                transforms.Resize((224, 224)),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
             ])
         elif self.dataset == 'cifar100':
             transform_train = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
+                transforms.Resize((224, 224)),
+                transforms.RandomCrop(224, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
             ])
             transform_test = transforms.Compose([
+                transforms.Resize((224, 224)),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
             ])
@@ -151,6 +264,63 @@ class NoiseDataLoader:
                             ])
             transform_test=transforms.Compose([
                     transforms.Resize(256),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
+                ])
+        elif self.dataset == 'tiny_imagenet':
+            transform_train=transforms.Compose([
+                transforms.Resize(224),
+                transforms.RandomCrop(224, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+            transform_test=transforms.Compose([
+                transforms.Resize(224),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+
+                ])
+        elif self.dataset == 'food101':
+            transform_train=transforms.Compose([
+                                transforms.Resize([224, 224]),
+                                transforms.RandomResizedCrop(224),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
+                            ])
+            transform_test=transforms.Compose([
+                    transforms.Resize([224, 224]),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
+                ])
+        elif self.dataset == 'miniimagenet':
+            transform_train=transforms.Compose([
+                                transforms.Resize([224, 224]),
+                                transforms.RandomResizedCrop(224),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
+                            ])
+            transform_test=transforms.Compose([
+                    transforms.Resize([224, 224]),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
+                ])
+        elif self.dataset == 'flower102':
+            transform_train=transforms.Compose([
+                                transforms.Resize([224, 224]),
+                                transforms.RandomResizedCrop(224),
+                                transforms.RandomCrop(224, padding=4),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
+                            ])
+            transform_test=transforms.Compose([
+                    transforms.Resize([224, 224]),
                     transforms.CenterCrop(224),
                     transforms.ToTensor(),
                     transforms.Normalize((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
@@ -194,6 +364,32 @@ class NoiseDataLoader:
             valdir   = os.path.join(self.root_dir+'/'+'val')
             train_dataset = datasets.ImageFolder(traindir,transform_train)
             test_dataset = datasets.ImageFolder(valdir,transform_test)
+        elif self.dataset == 'tiny_imagenet':
+            root = '/home/a33/桌面/Nonuniformity-a-Key-Factor-for-Generalization-Beyond-Flatness-in-Deep-Learning-master/data/tiny-imagenet-200/tiny-imagenet-200'
+            id_dic = {}
+            with open(os.path.join(root, 'wnids.txt'), 'r') as f:
+                for i, line in enumerate(f):
+                    id_dic[line.strip()] = i
+            train_dataset = TrainTinyImageNet(root, id=id_dic, transform=transform_train)
+            test_dataset = ValTinyImageNet(root, id=id_dic, transform=transform_test)
+        elif self.dataset == 'food101':
+            train_dataset = CustomFood101Dataset(
+                os.path.join('/', 'home', 'a33', '桌面', 'Nonuniformity-a-Key-Factor-for-Generalization-Beyond-Flatness-in-Deep-Learning-master',
+                             'data', 'food-101', 'meta', 'train.txt'),
+                os.path.join('/', 'home', 'a33', '桌面',
+                             'Nonuniformity-a-Key-Factor-for-Generalization-Beyond-Flatness-in-Deep-Learning-master',
+                             'data', 'food-101', 'images'),
+                transform=transform_train
+            )
+            test_dataset = CustomFood101Dataset(
+                os.path.join('/', 'home', 'a33', '桌面',
+                             'Nonuniformity-a-Key-Factor-for-Generalization-Beyond-Flatness-in-Deep-Learning-master',
+                             'data', 'food-101', 'meta', 'test.txt'),
+                os.path.join('/', 'home', 'a33', '桌面',
+                             'Nonuniformity-a-Key-Factor-for-Generalization-Beyond-Flatness-in-Deep-Learning-master',
+                             'data', 'food-101', 'images'),
+                transform=transform_test
+            )
         else:
             raise ValueError(f"Unsupported dataset: {self.dataset}")
 

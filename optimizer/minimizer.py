@@ -384,6 +384,8 @@ class CSAM_Identity(SAM):
             for name, param in self.model.named_parameters():
                 self.momentum[initial_index] = torch.zeros_like(original_grad[initial_index])
                 initial_index += 1
+        # if self.momentum is None:
+        #     self.momentum = [torch.zeros_like(g) for g in original_grad]
 
         for name, param in self.model.named_parameters():
             if param.grad is None:
